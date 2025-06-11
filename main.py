@@ -56,9 +56,9 @@ class RugguardBot:
 
         while True:
             try:
-                logger.debug(
+                logger.info(
                     f"Searching for tweets with query: "
-                    f'@{self.bot_username} "{self.trigger_phrase}" is:reply -is:retweet -is:quote'
+                    f'@{self.bot_username} {self.trigger_phrase} is:reply -is:retweet -is:quote'
 )
                 # Get recent mentions of the bot or replies with trigger phrase
                 mentions = self.twitter_api.search_recent_tweets(
