@@ -7,13 +7,16 @@ Main entry point for the bot that monitors replies and analyzes accounts.
 import os
 import time
 import logging
-from datetime import datetime
+# from datetime import datetime
 from dotenv import load_dotenv
 
-from bot.twitter_api import TwitterAPIHandler
+from bot.twitter_api import TwitterAPIHandler, TweetData, UserData
 from bot.analysis import AccountAnalyzer
 from bot.report_generator import ReportGenerator
 from config.trusted_accounts import TrustedAccountsManager
+
+from typing import List
+
 
 # Configure logging
 logging.basicConfig(
@@ -39,30 +42,42 @@ class RugguardBot:
 
         # Bot configuration
         self.trigger_phrase = "riddle me this"
-        self.bot_username = os.getenv("BOT_USERNAME", "projectrugguard")
+        self.bot_username: str = os.getenv("BOT_USERNAME", "@projectrugguard")
         self.last_processed_id = None
 
         logger.info("RugguardBot initialized successfully")
 
-    def monitor_replies(self):
+    def monitor_replies(self) -> None:
         """
         Main monitoring loop that checks for trigger phrases in replies.
         """
+        
         logger.info("Starting reply monitoring...")
 
         while True:
             try:
+                logger.debug(
+                    f"Searching for tweets with query: "
+                    f'@{self.bot_username} "{self.trigger_phrase}" is:reply -is:retweet -is:quote'
+)
                 # Get recent mentions of the bot or replies with trigger phrase
-                mentions = self.twitter_api.search_recent_tweets(
-                    query=f'"{self.trigger_phrase}" -is:retweet', max_results=10
+               mentions = self.twitter_api.search_recent_tweets(
+                   query =(
+                       f'@{self.bot_username} "{self.trigger_phrase}"'  # Must mention bot and phrase
+                       ' is:reply'                                      # Must be a reply
+                       ' -is:retweet'                                   # Exclude retweets
+                       ' -is:quote'                                     # Exclude quote tweets
+                       ),
+                   max_results=10
                 )
+               logger.INFO(f"Found {len(mentions)} matching tweets}")
 
                 if mentions:
                     for tweet in mentions:
                         # Skip if already processed
                         if (
                             self.last_processed_id
-                            and tweet.id <= self.last_processed_id
+                            and int(tweet.id) <= int(self.last_processed_id)
                         ):
                             continue
 
@@ -71,17 +86,17 @@ class RugguardBot:
                             self.process_trigger(tweet)
 
                         self.last_processed_id = max(
-                            self.last_processed_id or 0, tweet.id
+                            self.last_processed_id or 0, int(tweet.id)
                         )
 
                 # Wait before next check (respect rate limits)
-                time.sleep(60)  # Check every minute
+                time.sleep(600)  # Check every 10 minute
 
             except Exception as e:
                 logger.error(f"Error in monitoring loop: {e}")
                 time.sleep(300)  # Wait 5 minutes on error
 
-    def is_valid_trigger(self, tweet):
+    def is_valid_trigger(self, tweet) -> bool:
         """
         Check if a tweet is a valid trigger for analysis.
 
@@ -91,6 +106,10 @@ class RugguardBot:
         Returns:
             bool: True if valid trigger, False otherwise
         """
+        
+        if f"@{self.bot_username}".lower() not in tweet.text.lower():
+            return False
+        
         # Check if tweet contains trigger phrase
         if self.trigger_phrase.lower() not in tweet.text.lower():
             return False
@@ -101,7 +120,7 @@ class RugguardBot:
 
         return True
 
-    def process_trigger(self, trigger_tweet):
+    def process_trigger(self, trigger_tweet) -> None:
         """
         Process a valid trigger tweet by analyzing the original author.
 
@@ -112,7 +131,7 @@ class RugguardBot:
             logger.info(f"Processing trigger tweet: {trigger_tweet.id}")
 
             # Get the original tweet being replied to
-            original_tweet = self.twitter_api.get_tweet(
+            original_tweet: TweetData | None = self.twitter_api.get_tweet(
                 trigger_tweet.in_reply_to_tweet_id
             )
             if not original_tweet:
@@ -122,7 +141,7 @@ class RugguardBot:
                 return
 
             # Get the original author's details
-            original_author = self.twitter_api.get_user(original_tweet.author_id)
+            original_author: UserData | None = self.twitter_api.get_user(original_tweet.author_id)
             if not original_author:
                 logger.warning(
                     f"Could not fetch original author: {original_tweet.author_id}"

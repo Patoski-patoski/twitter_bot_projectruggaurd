@@ -5,11 +5,10 @@ Manages the list of trusted accounts and checks trust relationships.
 
 import logging
 import requests
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Set, Any
 from dataclasses import dataclass
 
-logger = logging.getLogger(__name__)
-
+logger: logging.Logger = logging.getLogger(__name__)
 
 @dataclass
 class TrustScore:
@@ -23,7 +22,7 @@ class TrustScore:
 class TrustedAccountsManager:
     """Manages trusted accounts list and trust verification."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the trusted accounts manager."""
         self.trusted_list_url = (
             "https://raw.githubusercontent.com/devsyrem/turst-list/main/list"
@@ -114,8 +113,8 @@ class TrustedAccountsManager:
                 return {"is_vouched": False, "trust_connections": 0, "vouched_by": []}
 
             # Check connections to trusted accounts
-            trusted_connections = []
-            following_usernames = {user.username.lower() for user in following}
+            trusted_connections: List[Any] = []
+            following_usernames: Set[str] = {user.username.lower() for user in following}
 
             for trusted_account in self.trusted_accounts:
                 if trusted_account in following_usernames:
@@ -123,7 +122,7 @@ class TrustedAccountsManager:
 
             # Determine if account is vouched
             # An account is "vouched" if followed by at least 2 trusted accounts
-            is_vouched = len(trusted_connections) >= 2
+            is_vouched: bool = len(trusted_connections) >= 2
 
             result = {
                 "is_vouched": is_vouched,
@@ -235,16 +234,16 @@ class TrustedAccountsManager:
             True if format is valid
         """
         try:
-            lines = content.strip().split("\n")
+            lines: List[str] = content.strip().split("\n")
             valid_lines = 0
 
             for line in lines:
-                line = line.strip()
+                line: str = line.strip()
                 if not line or line.startswith("#"):
                     continue
 
                 # Check if it looks like a valid username
-                username = line.lstrip("@")
+                username: str = line.lstrip("@")
                 if username.replace("_", "").replace(".", "").isalnum():
                     valid_lines += 1
                 else:
@@ -257,3 +256,4 @@ class TrustedAccountsManager:
         except Exception as e:
             logger.error(f"Error validating trusted list: {e}")
             return False
+

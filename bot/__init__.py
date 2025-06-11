@@ -6,6 +6,7 @@ Contains core functionality for Twitter bot operations.
 from .twitter_api import TwitterAPIHandler, TweetData, UserData
 from .analysis import AccountAnalyzer, AnalysisResult
 from .report_generator import ReportGenerator
+from .cache import TwitterCache, CacheEntry
 
 __all__ = [
     "TwitterAPIHandler",
@@ -14,4 +15,6 @@ __all__ = [
     "AccountAnalyzer",
     "AnalysisResult",
     "ReportGenerator",
+    "TwitterCache",
+    "CacheEntry",
 ]
