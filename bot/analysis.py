@@ -6,11 +6,10 @@ Analyzes Twitter accounts for trustworthiness indicators.
 import re
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
-from textblob import TextBlob
 
-from .twitter_api import TwitterAPIHandler, UserData
+from .twitter_api import TwitterAPIHandler, UserData, TweetData
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +35,10 @@ class AccountAnalyzer:
         Args:
             twitter_api: Twitter API handler instance
         """
-        self.twitter_api: TwitterAPIHandler = twitter_api
+        self.twitter_api = twitter_api
         
         # Suspicious keywords for bio analysis
-        self.suspicious_keywords: List[str] = [
+        self.suspicious_keywords = [
             'guaranteed', 'risk-free', 'get rich', 'easy money', 'moonshot',
             'to the moon', '100x', 'guaranteed returns', 'no risk',
             'quick profit', 'instant wealth', 'diamond hands', 'hodl',
@@ -212,52 +211,89 @@ class AccountAnalyzer:
         Returns:
             Score from 0-10 (higher is better engagement)
         """
-        score = 5
-
-        tweets = self.twitter_api.get_user_tweets(user.id, max_results=20)
-        if tweets:
-            avg_likes = sum(t.public_metrics.get("like_count", 0) for t in tweets) / len(tweets)
-            avg_retweets = sum(t.public_metrics.get("retweet_count", 0) for t in tweets) / len(tweets)
-            reply_count = sum(1 for t in tweets if t.in_reply_to_tweet_id) / len(tweets)
-            if avg_likes > 10:
-                score += 2
-            if avg_retweets > 5:
-                score += 1
-            if reply_count > 0.5:
-                score += 1  # Active in conversations
-                
-        # Existing tweet frequency logic
+        metrics = user.public_metrics
+        followers = metrics.get('followers_count', 0)
+        tweets = metrics.get('tweet_count', 0)
+        
+        if tweets == 0:
+            return 2  # Low score for no tweets
+        
+        score = 5  # Start with neutral
+        
+        # Analyze tweet frequency
         account_age_days = self._calculate_account_age(user.created_at)
         if account_age_days > 0:
-            tweets_per_day = user.public_metrics.get("tweet_count", 0) / account_age_days
-        if 1 <= tweets_per_day <= 10:
-            score += 1
-        elif tweets_per_day > 50:
-            score -= 2
+            tweets_per_day = tweets / account_age_days
             
+            if tweets_per_day > 50:  # Too many tweets per day
+                score -= 2
+            elif tweets_per_day > 20:
+                score -= 1
+            elif 1 <= tweets_per_day <= 10:  # Good range
+                score += 1
+        
+        # Analyze follower engagement
+        if followers > 1000 and tweets > 100:
+            score += 2
+        elif followers > 100 and tweets > 50:
+            score += 1
+        
         return max(0, min(10, score))
     
-    from textblob import TextBlob
     def _analyze_content(self, user_id: str) -> int:
-        score = 5
-        tweets = self.twitter_api.get_user_tweets(user_id, max_results=10)
+        """
+        Analyze recent tweet content for quality and trustworthiness.
         
-        if not tweets:
-            return 3
-        for tweet in tweets:
-            text = tweet.text.lower()
-            # Sentiment analysis
-            sentiment = TextBlob(tweet.text).sentiment.polarity
-            if sentiment > 0.2:
-                score += 0.5  # Positive sentiment
-            elif sentiment < -0.2:
-                score -= 0.5  # Negative sentiment
-                # Topic analysis (crypto-related)
-            if any(term in text for term in ['solana', 'blockchain', 'crypto', 'token']):
-                score += 0.5
-        # Existing spam/quality checks
-            if any(keyword in text for keyword in self.suspicious_keywords):
-                score -= 1
-                
-        return max(0, min(10, score))
+        Returns:
+            Score from 0-10 (higher is better content)
+        """
+        try:
+            # Get recent tweets
+            tweets = self.twitter_api.get_user_tweets(user_id, max_results=20)
             
+            if not tweets:
+                return 3  # Neutral score for no tweets
+            
+            score = 5  # Start with neutral
+            
+            # Analyze tweet content
+            spam_indicators = 0
+            quality_indicators = 0
+            
+            for tweet in tweets:
+                text = tweet.text.lower()
+                
+                # Check for spam indicators
+                if any(keyword in text for keyword in self.suspicious_keywords):
+                    spam_indicators += 1
+                
+                # Check for excessive hashtags
+                hashtag_count = text.count('#')
+                if hashtag_count > 5:
+                    spam_indicators += 1
+                
+                # Check for repeated content
+                if len(set(tweet.text.split())) < len(tweet.text.split()) * 0.7:
+                    spam_indicators += 1
+                
+                # Check for quality indicators
+                if len(tweet.text) > 100:  # Substantial content
+                    quality_indicators += 1
+                
+                # Check engagement on individual tweets
+                metrics = tweet.public_metrics
+                if metrics.get('retweet_count', 0) > 0 or metrics.get('like_count', 0) > 0:
+                    quality_indicators += 1
+            
+            # Calculate final score
+            spam_ratio = spam_indicators / len(tweets)
+            quality_ratio = quality_indicators / len(tweets)
+            
+            score += quality_ratio * 3
+            score -= spam_ratio * 4
+            
+            return max(0, min(10, score))
+            
+        except Exception as e:
+            logger.error(f"Error analyzing content for user {user_id}: {e}")
+            return 5  # Return neutral score on error
