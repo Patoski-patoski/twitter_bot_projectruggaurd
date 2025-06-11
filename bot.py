@@ -69,7 +69,7 @@ def search_tweets(query: str)-> List[Any]:
 
 
 if __name__ == "__main__":
-    tweets = search_tweets("@projectruggaurd riddle me this")
+    tweets = search_tweets("@projectrugguard riddle me this")
     print(f"\nFound {len(tweets)} matching tweets")
 
     # bot.upload_media("raise Forbidden error to the power of {e}", "image.png")

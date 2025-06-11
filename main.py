@@ -61,20 +61,20 @@ class RugguardBot:
                     f'@{self.bot_username} "{self.trigger_phrase}" is:reply -is:retweet -is:quote'
 )
                 # Get recent mentions of the bot or replies with trigger phrase
-               mentions = self.twitter_api.search_recent_tweets(
-                   query =(
-                       f'@{self.bot_username} "{self.trigger_phrase}"'  # Must mention bot and phrase
-                       ' is:reply'                                      # Must be a reply
-                       ' -is:retweet'                                   # Exclude retweets
-                       ' -is:quote'                                     # Exclude quote tweets
-                       ),
-                   max_results=10
+                mentions = self.twitter_api.search_recent_tweets(
+                    query =(
+                        f'@{self.bot_username} "{self.trigger_phrase}"'  # Must mention bot and phrase
+                        ' is:reply'                                      # Must be a reply
+                        ' -is:retweet'                                   # Exclude retweets
+                        ' -is:quote'                                     # Exclude quote tweets
+                    ),
+                    max_results=10
                 )
-               logger.INFO(f"Found {len(mentions)} matching tweets}")
+                logger.INFO(f"Found {len(mentions)} matching tweets")
+                print("Mentions", mentions.data)
 
                 if mentions:
                     for tweet in mentions:
-                        # Skip if already processed
                         if (
                             self.last_processed_id
                             and int(tweet.id) <= int(self.last_processed_id)
@@ -107,11 +107,7 @@ class RugguardBot:
             bool: True if valid trigger, False otherwise
         """
         
-        if f"@{self.bot_username}".lower() not in tweet.text.lower():
-            return False
-        
-        # Check if tweet contains trigger phrase
-        if self.trigger_phrase.lower() not in tweet.text.lower():
+        if f"@{self.bot_username}".lower() and self.trigger_phrase.lower() not in tweet.text.lower():
             return False
 
         # Check if this is a reply (has in_reply_to_tweet_id)
