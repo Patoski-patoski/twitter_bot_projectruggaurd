@@ -1,3 +1,4 @@
+# trusted_accounts.py
 """
 Trusted Accounts Manager for Project RUGGUARD
 Manages the list of trusted accounts and checks trust relationships.
@@ -7,6 +8,7 @@ import logging
 import requests
 from typing import Dict, List, Set, Any
 from dataclasses import dataclass
+from bot.cache import JSONCache
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -24,11 +26,11 @@ class TrustedAccountsManager:
 
     def __init__(self) -> None:
         """Initialize the trusted accounts manager."""
-        self.trusted_list_url = (
-            "https://raw.githubusercontent.com/devsyrem/turst-list/main/list"
-        )
+        self.trusted_list_url = 'https://raw.githubusercontent.com/devsyrem/turst-list/main/list'
+    
         self.trusted_accounts: Set[str] = set()
         self.last_update = None
+        self.cache = JSONCache(cache_dir="trusted_accounts_cache")
 
         # Load initial trusted accounts
         self.update_trusted_list()
@@ -40,10 +42,17 @@ class TrustedAccountsManager:
         Returns:
             True if successful, False otherwise
         """
+        cache_key = "trusted_list"
+        cached = self.cache.get(cache_key)
+        
+        if cached and isinstance(cached, list):
+            self.trusted_accounts = set(cached)
+            return True
+        
         try:
             logger.info("Updating trusted accounts list...")
 
-            response = requests.get(self.trusted_list_url, timeout=10)
+            response: requests.Response = requests.get(self.trusted_list_url, timeout=10)
             response.raise_for_status()
 
             # Parse the list (assuming one username per line)
@@ -52,12 +61,13 @@ class TrustedAccountsManager:
                 line = line.strip()
                 if line and not line.startswith("#"):  # Skip empty lines and comments
                     # Remove @ symbol if present
-                    username = line.lstrip("@").lower()
-                    if username:
+                    username = line.split()[0].lstrip("@").lower()  # Take first token
+                    if username and username.isascii():  # Basic validation
                         accounts.add(username)
 
-            self.trusted_accounts = accounts
+            self.cache.set(cache_key, list(accounts), ttl=86400)  # Cache for 24 hours
             logger.info(f"Loaded {len(self.trusted_accounts)} trusted accounts")
+            
             return True
 
         except Exception as e:

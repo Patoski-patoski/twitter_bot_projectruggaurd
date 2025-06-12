@@ -6,3 +6,9 @@ __pycache__/
 .env.example
 list
 commit.txt
+cache/
+trusted_cache/
+# Cache files
+trusted_accounts_cache/
+bot/cache.py
+bot/__pycache__/

@@ -1,13 +1,17 @@
 """
 Twitter API Handler for Project RUGGUARD
-Handles all interactions with the X (Twitter) API.
+Handles all interactions with the X (Twitter) API with comprehensive caching.
 """
 
 import os
 import tweepy
 import logging
-from typing import Optional, List, Dict, Any
+import hashlib
+from typing import Optional, List, Dict
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+from .cache import JSONCache
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -39,16 +43,25 @@ class UserData:
 
 
 class TwitterAPIHandler:
-    """Handles all Twitter API interactions."""
+    """Handles all Twitter API interactions with comprehensive caching."""
 
     def __init__(self):
-        """Initialize Twitter API client."""
+        """Initialize Twitter API client with caching."""
         # Load API credentials from environment
         self.bearer_token = os.getenv("X_BEARER_TOKEN")
         self.api_key = os.getenv("X_API_KEY")
         self.api_secret = os.getenv("X_API_SECRET")
         self.access_token = os.getenv("X_ACCESS_TOKEN")
         self.access_token_secret = os.getenv("X_ACCESS_TOKEN_SECRET")
+
+        # Initialize cache with specific TTL configurations
+        self.cache = JSONCache()
+        self.cache_ttl = {
+            "user": 86400,  # 24 hours for user profiles
+            "tweets": 3600,  # 1 hour for tweets
+            "following": 43200,  # 12 hours for following lists
+            "search": 600,  # 10 minutes for search results
+        }
 
         # Validate credentials
         if not all(
@@ -72,13 +85,36 @@ class TwitterAPIHandler:
             wait_on_rate_limit=True,
         )
 
-        logger.info("Twitter API client initialized")
+        logger.info("Twitter API client initialized with caching")
 
-    def search_recent_tweets(
-        self, query: str, max_results: int = 10
-    ) -> List[TweetData]:
+    def clear_user_cache(self, user_id: str) -> None:
         """
-        Search for recent tweets matching a query.
+        Clear all cache entries for a specific user.
+
+        Args:
+            user_id: The user ID to clear cache for
+        """
+        cache_keys = [
+            f"user_id_{user_id}",
+            f"user_tweets_{user_id}_*",
+            f"user_following_{user_id}_*",
+        ]
+
+        for key in cache_keys:
+            if "*" in key:
+                # Handle wildcard keys (would need cache backend support)
+                logger.warning("Wildcard cache clearing not fully implemented")
+            else:
+                self.cache.clear(key)
+
+        logger.info(f"Cleared cache for user {user_id}")
+
+   
+   
+    
+    def search_recent_tweets(self, query: str, max_results: int = 10) -> List[TweetData]:
+        """
+        Search for recent tweets matching a query with caching.
 
         Args:
             query: Search query string
@@ -87,43 +123,59 @@ class TwitterAPIHandler:
         Returns:
             List of TweetData objects
         """
+        
+        query_hash = hashlib.md5(query.encode()).hexdigest()
+        cache_key = f"search_{query_hash}_{max_results}"
+        
         try:
+            cached = self.cache.get(cache_key)
+            if cached:
+                logger.debug(f"Cache hit for search: {query}")
+                # Convert string timestamps back to datetime
+                for tweet in cached:
+                    tweet['created_at'] = datetime.fromisoformat(tweet['created_at'])
+                return [TweetData(**tweet) for tweet in cached]
+            
+            logger.debug(f"Cache miss for search: {query}")
+        
             response = self.client.search_recent_tweets(
                 query=query,
                 max_results=max_results,
-                tweet_fields=[
-                    "author_id",
-                    "created_at",
-                    "public_metrics",
-                    "in_reply_to_user_id",
-                ],
+                tweet_fields=["author_id", "created_at", "public_metrics", "in_reply_to_user_id"],
                 expansions=["author_id"],
             )
 
             if not response.data:
                 return []
+            
+            else:
+                print("Response data\n\n", response.data)
 
             tweets = []
             for tweet in response.data:
-                tweet_data = TweetData(
-                    id=tweet.id,
-                    text=tweet.text,
-                    author_id=tweet.author_id,
-                    created_at=tweet.created_at,
-                    public_metrics=tweet.public_metrics,
-                    in_reply_to_tweet_id=getattr(tweet, "in_reply_to_user_id", None),
-                )
-                tweets.append(tweet_data)
+                tweet_data = {
+                'id': tweet.id,
+                'text': tweet.text,
+                'author_id': tweet.author_id,
+                'created_at': tweet.created_at,
+                'public_metrics': tweet.public_metrics,
+                'in_reply_to_tweet_id': getattr(tweet, "in_reply_to_user_id", None)
+            }
+            tweets.append(tweet_data)
 
-            return tweets
+            self.cache.set(cache_key, tweets, ttl=self.cache_ttl['search'])
+        
+            # Convert back to TweetData objects for return
+            return [TweetData(**t) for t in tweets]
 
-        except tweepy.TweepyException as e:
-            logger.error(f"Error searching tweets: {e}")
+        except Exception as e:
+            logger.error(f"Error in search_recent_tweets: {str(e)}")
             return []
+     
 
     def get_tweet(self, tweet_id: str) -> Optional[TweetData]:
         """
-        Get a specific tweet by ID.
+        Get a specific tweet by ID with caching.
 
         Args:
             tweet_id: ID of the tweet to fetch
@@ -131,14 +183,23 @@ class TwitterAPIHandler:
         Returns:
             TweetData object or None if not found
         """
+        cache_key = f"tweet_{tweet_id}"
+        cached = self.cache.get(cache_key)
+
+        if cached:
+            logger.debug(f"Cache hit for tweet {tweet_id}")
+            return TweetData(**cached)
+
+        logger.debug(f"Cache miss for tweet {tweet_id}")
+
         try:
             response = self.client.get_tweet(
                 tweet_id,
-                tweet_fields=[
-                    "author_id",
-                    "created_at",
-                    "public_metrics",
-                    "in_reply_to_user_id",
+            tweet_fields=[
+                "author_id",
+                "created_at",
+                "public_metrics",
+                "in_reply_to_user_id",
                 ],
             )
 
@@ -146,7 +207,7 @@ class TwitterAPIHandler:
                 return None
 
             tweet = response.data
-            return TweetData(
+            tweet_data = TweetData(
                 id=tweet.id,
                 text=tweet.text,
                 author_id=tweet.author_id,
@@ -155,13 +216,17 @@ class TwitterAPIHandler:
                 in_reply_to_tweet_id=getattr(tweet, "in_reply_to_user_id", None),
             )
 
+            # Cache for 1 hour (tweets don't change often)
+            self.cache.set(cache_key, tweet_data.__dict__, ttl=self.cache_ttl["tweets"])
+            return tweet_data
+
         except tweepy.TweepyException as e:
             logger.error(f"Error fetching tweet {tweet_id}: {e}")
-            return None
+        return None
 
     def get_user(self, user_id: str) -> Optional[UserData]:
         """
-        Get user information by user ID.
+        Get user information by user ID with caching.
 
         Args:
             user_id: ID of the user to fetch
@@ -169,9 +234,18 @@ class TwitterAPIHandler:
         Returns:
             UserData object or None if not found
         """
+        cache_key = f"user_id_{user_id}"
+        cached = self.cache.get(cache_key)
+
+        if cached:
+            logger.debug(f"Cache hit for user ID {user_id}")
+            return UserData(**cached)
+
+        logger.debug(f"Cache miss for user ID {user_id}")
+
         try:
             response = self.client.get_user(
-                user_id,
+            id=user_id,
                 user_fields=[
                     "created_at",
                     "description",
@@ -185,7 +259,7 @@ class TwitterAPIHandler:
                 return None
 
             user = response.data
-            return UserData(
+            user_data = UserData(
                 id=user.id,
                 username=user.username,
                 name=user.name,
@@ -196,13 +270,16 @@ class TwitterAPIHandler:
                 profile_image_url=getattr(user, "profile_image_url", None),
             )
 
+            self.cache.set(cache_key, user_data.__dict__, ttl=self.cache_ttl["user"])
+            return user_data
+
         except tweepy.TweepyException as e:
             logger.error(f"Error fetching user {user_id}: {e}")
-            return None
+        return None
 
     def get_user_by_username(self, username: str) -> Optional[UserData]:
         """
-        Get user information by username.
+        Get user information by username with caching.
 
         Args:
             username: Username to fetch (without @)
@@ -210,6 +287,18 @@ class TwitterAPIHandler:
         Returns:
             UserData object or None if not found
         """
+        if not username:
+            return None
+
+        cache_key = f"user_name_{username.lower()}"
+        cached = self.cache.get(cache_key)
+
+        if cached:
+            logger.debug(f"Cache hit for username @{username}")
+            return UserData(**cached)
+
+        logger.debug(f"Cache miss for username @{username}")
+
         try:
             response = self.client.get_user(
                 username=username,
@@ -226,7 +315,7 @@ class TwitterAPIHandler:
                 return None
 
             user = response.data
-            return UserData(
+            user_data = UserData(
                 id=user.id,
                 username=user.username,
                 name=user.name,
@@ -237,13 +326,21 @@ class TwitterAPIHandler:
                 profile_image_url=getattr(user, "profile_image_url", None),
             )
 
+            # Cache under both username and ID
+            self.cache.set(cache_key, user_data.__dict__, ttl=self.cache_ttl["user"])
+            self.cache.set(
+                f"user_id_{user.id}", user_data.__dict__, ttl=self.cache_ttl["user"]
+            )
+
+            return user_data
+
         except tweepy.TweepyException as e:
             logger.error(f"Error fetching user @{username}: {e}")
             return None
 
     def get_user_tweets(self, user_id: str, max_results: int = 10) -> List[TweetData]:
         """
-        Get recent tweets from a user.
+        Get recent tweets from a user with caching.
 
         Args:
             user_id: ID of the user
@@ -252,6 +349,15 @@ class TwitterAPIHandler:
         Returns:
             List of TweetData objects
         """
+        cache_key = f"user_tweets_{user_id}_{max_results}"
+        cached = self.cache.get(cache_key)
+
+        if cached:
+            logger.debug(f"Cache hit for user {user_id} tweets")
+            return [TweetData(**tweet) for tweet in cached]
+
+        logger.debug(f"Cache miss for user {user_id} tweets")
+
         try:
             response = self.client.get_users_tweets(
                 user_id,
@@ -273,6 +379,13 @@ class TwitterAPIHandler:
                 )
                 tweets.append(tweet_data)
 
+            # Cache the serialized tweet data
+            self.cache.set(
+                cache_key,
+                [tweet.__dict__ for tweet in tweets],
+                ttl=self.cache_ttl["tweets"],
+            )
+
             return tweets
 
         except tweepy.TweepyException as e:
@@ -281,7 +394,7 @@ class TwitterAPIHandler:
 
     def get_following(self, user_id: str, max_results: int = 100) -> List[UserData]:
         """
-        Get list of users that a user is following.
+        Get following list for a user with caching.
 
         Args:
             user_id: ID of the user
@@ -290,6 +403,15 @@ class TwitterAPIHandler:
         Returns:
             List of UserData objects
         """
+        cache_key = f"user_following_{user_id}_{max_results}"
+        cached = self.cache.get(cache_key)
+
+        if cached:
+            logger.debug(f"Cache hit for user {user_id} following")
+            return [UserData(**user) for user in cached]
+
+        logger.debug(f"Cache miss for user {user_id} following")
+
         try:
             response = self.client.get_users_following(
                 user_id,
@@ -312,6 +434,13 @@ class TwitterAPIHandler:
                     verified=getattr(user, "verified", False),
                 )
                 users.append(user_data)
+
+            # Cache the serialized user data
+            self.cache.set(
+                cache_key,
+                [user.__dict__ for user in users],
+                ttl=self.cache_ttl["following"],
+            )
 
             return users
 
