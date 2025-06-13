@@ -38,7 +38,7 @@ Project RUGGUARD helps users assess the trustworthiness of token projects and ac
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/projectruggaurd.git
+git clone https://github.com/patoski-patoski/projectruggaurd.git
 cd projectruggaurd
 ```
 
@@ -70,7 +70,7 @@ pip install -r requirements.txt
 
 ### Step 4: Configure Bot Settings
 
-Edit the `.env` file to customize:
+Edit the `.env` file to customise:
 
 - `BOT_USERNAME`: Your bot's Twitter username
 - `TRIGGER_PHRASE`: Phrase that triggers analysis (default: "riddle me this")
