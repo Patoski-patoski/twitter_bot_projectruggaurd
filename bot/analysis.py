@@ -7,10 +7,10 @@ Analyzes Twitter accounts for trustworthiness indicators.
 import re
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Any, Optional
+from typing import Dict, List
 from dataclasses import dataclass
 
-from .twitter_api import TwitterAPIHandler, UserData, TweetData
+from .twitter_api import TwitterAPIHandler, UserData
 
 logger = logging.getLogger(__name__)
 
