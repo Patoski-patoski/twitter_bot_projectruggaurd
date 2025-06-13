@@ -237,4 +237,4 @@ The bot generates detailed logs including:
 - Error handling and recovery
 - Performance metrics
 
-Logs are saved to `rugguard_b`
+Logs are saved to `rugguard_bot.log`
