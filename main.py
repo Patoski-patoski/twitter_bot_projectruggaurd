@@ -8,11 +8,12 @@ Main entry point for the bot that monitors replies and analyzes accounts.
 import os
 import time
 import logging
-# from datetime import datetime
+from typing import List
+import tweepy
 from dotenv import load_dotenv
 
 from bot.twitter_api import TwitterAPIHandler, TweetData, UserData
-from bot.analysis import AccountAnalyzer
+from bot.analysis import AccountAnalyzer, AnalysisResult
 from bot.report_generator import ReportGenerator
 from config.trusted_accounts import TrustedAccountsManager
 
@@ -24,6 +25,7 @@ logging.basicConfig(
     handlers=[logging.FileHandler("rugguard_bot.log"), logging.StreamHandler()],
 )
 logger: logging.Logger = logging.getLogger(__name__)
+logger.info(f"Env variable for bot_username is {os.getenv("BOT_USERNAME")}")
 
 
 class RugguardBot:
@@ -67,14 +69,14 @@ class RugguardBot:
                     f'@{self.bot_username} {self.trigger_phrase}'
 )
                 # Get recent mentions of the bot or replies with trigger phrase
-                mentions = self.twitter_api.search_recent_tweets(
+                mentions: List[TweetData] = self.twitter_api.search_recent_tweets(
                     query=f'@{self.bot_username} {self.trigger_phrase} (is:reply OR is:quote) -is:retweet',
                     max_results=10
                 )
                 logger.info(f"Raw search returned {len(mentions)} tweets")
                 
                 # Filter out tweets that don't have in_reply_to_tweet_id
-                valid_mentions = [t for t in mentions if hasattr(t, 'in_reply_to_tweet_id') and t.in_reply_to_tweet_id]
+                valid_mentions: List[TweetData] = [t for t in mentions if hasattr(t, 'in_reply_to_tweet_id') and t.in_reply_to_tweet_id]
                 logger.info(f"Found {len(valid_mentions)} valid reply tweets")
                 
                 if valid_mentions:
@@ -132,11 +134,12 @@ class RugguardBot:
         Args:
             trigger_tweet: The tweet containing the trigger phrase
         """
+        
+        logger.info(f"Processing trigger tweet: {trigger_tweet.id}")
+        logger.info(f"Trigger tweet text: {trigger_tweet.text}")
+        logger.info(f"Reply to tweet ID: {trigger_tweet.in_reply_to_tweet_id}")
+        
         try:
-            logger.info(f"Processing trigger tweet: {trigger_tweet.id}")
-            logger.info(f"Trigger tweet text: {trigger_tweet.text}")
-            logger.info(f"Reply to tweet ID: {trigger_tweet.in_reply_to_tweet_id}")
-
             # Get the tweet being replied to (immediate parent)
             parent_tweet: TweetData | None = self.twitter_api.get_tweet(
                 trigger_tweet.in_reply_to_tweet_id
@@ -171,7 +174,7 @@ class RugguardBot:
             logger.info(f"Analyzing user: @{parent_author.username}")
 
             # Perform analysis
-            analysis_result = self.analyzer.analyze_account(parent_author)
+            analysis_result: AnalysisResult = self.analyzer.analyze_account(parent_author)
 
             # Check trusted accounts
             trust_score = self.trusted_accounts.check_trust_score(
@@ -179,7 +182,7 @@ class RugguardBot:
             )
 
             # Generate report
-            report = self.report_generator.generate_report(
+            report: str = self.report_generator.generate_report(
                 parent_author, analysis_result, trust_score
             )
 
@@ -198,7 +201,7 @@ class RugguardBot:
                     text="Sorry, I encountered an error while analyzing this account. Please try again later.",
                     in_reply_to_tweet_id=trigger_tweet.id,
                 )
-            except:
+            except tweepy.TweepyException as e:
                 pass
 
 

@@ -272,7 +272,7 @@ class ReportGenerator:
         else:
             follower_str = str(followers)
 
-        age_days = (datetime.now() - user.created_at).days
+        age_days = (datetime.now() - datetime.fromisoformat(user.created_at.replace('Z', '+00:00'))).days
         if age_days >= 365:
             age_str = f"{age_days // 365}y"
         else:

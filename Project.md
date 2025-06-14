@@ -8,9 +8,10 @@ projectruggaurd/
 ├── README.md             # Comprehensive project documentation
 ├── requirements.txt      # List of Python dependencies
 ├── main.py               # Main entry point for bot
-├── bot_logic/            # Directory for core bot functionalities
+├── bot/            # Directory for core bot functionalities
 │   ├── __init__.py
 │   ├── twitter_api.py    # Handles all interactions with the X API
+│   ├── cache.py          # Handles caching of API responses to reduce rate limit issues.
 │   ├── analysis.py       # Contains functions for account data analysis
 │   └── report_generator.py # Formats the trustworthiness report
 ├── config/               # Directory for configuration and trusted list
