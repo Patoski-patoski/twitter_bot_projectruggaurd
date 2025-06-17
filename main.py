@@ -8,9 +8,10 @@ Main entry point for the bot that monitors replies and analyzes accounts.
 import os
 import time
 import logging
-from typing import List
 import tweepy
+from typing import List, Dict, Any
 from dotenv import load_dotenv
+from datetime import datetime, timezone
 
 from bot.twitter_api import TwitterAPIHandler, TweetData, UserData
 from bot.analysis import AccountAnalyzer, AnalysisResult
@@ -22,7 +23,9 @@ from config.trusted_accounts import TrustedAccountsManager
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("rugguard_bot.log"), logging.StreamHandler()],
+    handlers=[
+        logging.FileHandler("rugguard_bot.log", encoding='utf-8'), logging.StreamHandler()
+    ],
 )
 logger: logging.Logger = logging.getLogger(__name__)
 logger.info(f"Env variable for bot_username is {os.getenv("BOT_USERNAME")}")
@@ -31,7 +34,7 @@ logger.info(f"Env variable for bot_username is {os.getenv("BOT_USERNAME")}")
 class RugguardBot:
     """Main bot class that orchestrates the entire process."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the bot with all necessary components."""
         load_dotenv()
 
@@ -81,7 +84,7 @@ class RugguardBot:
                 
                 if valid_mentions:
                     # Sort mentions by ID in descending order (newest first)
-                    sorted_mentions = sorted(valid_mentions, key=lambda x: int(x.id), reverse=True)
+                    sorted_mentions: List[TweetData] = sorted(valid_mentions, key=lambda x: int(x.id), reverse=True)
                     logger.info(f"Processing {len(sorted_mentions)} tweets, newest first")
                     
                     for tweet in sorted_mentions:
@@ -119,7 +122,7 @@ class RugguardBot:
         """
         
         tweet_text = tweet.text.lower()
-        bot_mention = f"@{self.bot_username}".lower()
+        bot_mention: str = f"@{self.bot_username}".lower()
         
         return (bot_mention in tweet_text and
                 self.trigger_phrase.lower() in tweet_text and
@@ -141,17 +144,24 @@ class RugguardBot:
         
         try:
             # Get the tweet being replied to (immediate parent)
+            logger.info(f"Attempting to fetch parent tweet with ID: {trigger_tweet.in_reply_to_tweet_id}")
             parent_tweet: TweetData | None = self.twitter_api.get_tweet(
                 trigger_tweet.in_reply_to_tweet_id
             )
+            
             if not parent_tweet:
                 logger.warning(
-                    f"Parent tweet not found or inaccessible: {trigger_tweet.in_reply_to_tweet_id}. "
-                    f"This could be because:\n"
-                    f"1. The tweet was deleted\n"
-                    f"2. The tweet is from a private account\n"
-                    f"3. The tweet ID is invalid\n"
-                    f"4. The tweet is too old (Twitter API limitations)"
+                    f"Parent tweet fetch failed for ID: {trigger_tweet.in_reply_to_tweet_id}\n"
+                    f"Trigger tweet details:\n"
+                    f"- ID: {trigger_tweet.id}\n"
+                    f"- Text: {trigger_tweet.text}\n"
+                    f"- Created at: {getattr(trigger_tweet, 'created_at', 'unknown')}\n"
+                    f"- Author ID: {getattr(trigger_tweet, 'author_id', 'unknown')}\n"
+                    f"Possible reasons:\n"
+                    f"1. Tweet age: {self._get_tweet_age(trigger_tweet)} days old\n"
+                    f"2. API rate limit hit\n"
+                    f"3. Tweet deleted/private\n"
+                    f"4. Invalid tweet ID"
                 )
                 self.twitter_api.create_tweet(
                     text="⚠️ Could not fetch the tweet you're replying to. It may have been deleted, made private, or is too old to access.",
@@ -159,11 +169,20 @@ class RugguardBot:
                 )
                 return
 
+            logger.info(f"Successfully fetched parent tweet: {parent_tweet.id}")
+            logger.info(f"Parent tweet text: {parent_tweet.text[:100]}...")
+            logger.info(f"Parent tweet author ID: {parent_tweet.author_id}")
+
             # Get the parent tweet's author details
+            logger.info(f"Fetching author details for ID: {parent_tweet.author_id}")
             parent_author: UserData | None = self.twitter_api.get_user(parent_tweet.author_id)
             if not parent_author:
                 logger.warning(
-                    f"Could not fetch parent tweet author: {parent_tweet.author_id}"
+                    f"Could not fetch parent tweet author: {parent_tweet.author_id}\n"
+                    f"Parent tweet details:\n"
+                    f"- ID: {parent_tweet.id}\n"
+                    f"- Text: {parent_tweet.text}\n"
+                    f"- Created at: {parent_tweet.created_at}"
                 )
                 self.twitter_api.create_tweet(
                     text="⚠️ Could not fetch the author of the tweet you're replying to.",
@@ -171,13 +190,13 @@ class RugguardBot:
                 )
                 return
 
-            logger.info(f"Analyzing user: @{parent_author.username}")
+            logger.info(f"Successfully fetched author: @{parent_author.username}")
 
             # Perform analysis
             analysis_result: AnalysisResult = self.analyzer.analyze_account(parent_author)
 
             # Check trusted accounts
-            trust_score = self.trusted_accounts.check_trust_score(
+            trust_score: Dict[Any, Any] = self.trusted_accounts.check_trust_score(
                 parent_author.username, self.twitter_api
             )
 
@@ -203,6 +222,20 @@ class RugguardBot:
                 )
             except tweepy.TweepyException as e:
                 pass
+
+    def _get_tweet_age(self, tweet) -> int:
+        """Calculate the age of a tweet in days."""
+        try:
+            if hasattr(tweet, 'created_at'):
+                created_at = tweet.created_at
+                if isinstance(created_at, str):
+                    created_at: datetime = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                age = datetime.now(timezone.utc) - created_at
+                return age.days
+            return -1
+        except Exception as e:
+            logger.error(f"Error calculating tweet age: {e}")
+            return -1
 
 
 def main():

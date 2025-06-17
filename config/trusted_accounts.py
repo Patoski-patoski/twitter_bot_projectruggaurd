@@ -24,7 +24,7 @@ class TrustScore:
 class TrustedAccountsManager:
     """Manages trusted accounts list and trust verification."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the trusted accounts manager."""
         self.trusted_list_url = (
             "https://raw.githubusercontent.com/devsyrem/turst-list/main/list"
@@ -47,12 +47,12 @@ class TrustedAccountsManager:
 
         try:
             logger.info("Updating trusted accounts list...")
-            response = requests.get(self.trusted_list_url, timeout=10)
+            response: requests.Response = requests.get(self.trusted_list_url, timeout=10)
             response.raise_for_status()
 
             accounts = set()
             for line in response.text.strip().split("\n"):
-                line = line.strip()
+                line: str = line.strip()
                 if line and not line.startswith("#"):
                     username = line.split()[0].lstrip("@").lower()
                     if (
@@ -104,7 +104,7 @@ class TrustedAccountsManager:
                     trusted_connections.append(trusted_account)
 
             # An account is "vouched" if followed by at least 2 trusted accounts
-            is_vouched = len(trusted_connections) >= 2
+            is_vouched: bool = len(trusted_connections) >= 2
 
             return {
                 "is_vouched": is_vouched,

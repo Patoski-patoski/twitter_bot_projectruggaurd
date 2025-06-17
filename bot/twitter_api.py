@@ -8,8 +8,8 @@ import tweepy
 import logging
 import hashlib
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Set
-from datetime import datetime, timezone, timedelta
+from typing import List, Dict, Optional, Set, Any
+from datetime import datetime
 
 from .cache import JSONCache
 
@@ -23,7 +23,7 @@ class TweetData:
     id: str
     text: str
     author_id: str
-    created_at: str
+    created_at: datetime
     public_metrics: Dict[str, int]
     in_reply_to_tweet_id: Optional[str] = None
 
@@ -36,7 +36,7 @@ class UserData:
     username: str
     name: str
     description: str
-    created_at: str
+    created_at: datetime
     public_metrics: Dict[str, int]
     verified: bool = False
     profile_image_url: Optional[str] = None
@@ -45,13 +45,13 @@ class UserData:
 class TwitterAPIHandler:
     """Handles all Twitter API interactions with caching."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize Twitter API client."""
-        self.bearer_token = os.getenv("X_BEARER_TOKEN")
-        self.api_key = os.getenv("X_API_KEY")
-        self.api_secret = os.getenv("X_API_SECRET")
-        self.access_token = os.getenv("X_ACCESS_TOKEN")
-        self.access_token_secret = os.getenv("X_ACCESS_TOKEN_SECRET")
+        self.bearer_token: str | None = os.getenv("X_BEARER_TOKEN")
+        self.api_key: str | None = os.getenv("X_API_KEY")
+        self.api_secret: str | None = os.getenv("X_API_SECRET")
+        self.access_token: str | None = os.getenv("X_ACCESS_TOKEN")
+        self.access_token_secret: str | None = os.getenv("X_ACCESS_TOKEN_SECRET")
 
         if not all(
             [
@@ -80,8 +80,8 @@ class TwitterAPIHandler:
         self, query: str, max_results: int = 10
     ) -> List[TweetData]:
         """Search for recent tweets matching a query."""
-        query_hash = hashlib.md5(query.encode()).hexdigest()
-        cache_key = f"search_{query_hash}_{max_results}"
+        query_hash: str = hashlib.md5(query.encode()).hexdigest()
+        cache_key: str = f"search_{query_hash}_{max_results}"
 
         cached = self.cache.get(cache_key)
         if cached:
@@ -96,25 +96,32 @@ class TwitterAPIHandler:
                     "author_id",
                     "created_at",
                     "public_metrics",
-                    "in_reply_to_user_id",
+                    "conversation_id",
+                    "referenced_tweets"
                 ],
-                expansions=["author_id"],
+                expansions=["referenced_tweets.id", "author_id"]
             )
 
             if not response.data:
                 return []
 
+            # Create a lookup for referenced tweets
+            referenced_tweets = {}
+            if hasattr(response, 'includes') and hasattr(response.includes, 'tweets'):
+                for tweet in response.includes.tweets:
+                    referenced_tweets[tweet.id] = tweet
+
             tweets = []
             for tweet in response.data:
-                # Fix: Use correct field name for reply detection
-                in_reply_to_id = None
-                if hasattr(tweet, "in_reply_to_user_id"):
-                    # This field exists but we need the tweet ID, not user ID
-                    # We'll check if this is a reply by looking at the text
-                    pass
+                # Get the actual reply tweet ID if this is a reply
+                in_reply_to_tweet_id = None
+                if hasattr(tweet, 'referenced_tweets') and tweet.referenced_tweets:
+                    for ref in tweet.referenced_tweets:
+                        if ref.type == 'replied_to':
+                            in_reply_to_tweet_id = ref.id
+                            break
 
-                # Better approach: parse conversation_id or check context_annotations
-                tweet_data = {
+                tweet_data: Dict[str, Any] = {
                     "id": tweet.id,
                     "text": tweet.text,
                     "author_id": tweet.author_id,
@@ -122,11 +129,11 @@ class TwitterAPIHandler:
                     if hasattr(tweet.created_at, "isoformat")
                     else str(tweet.created_at),
                     "public_metrics": tweet.public_metrics or {},
-                    "in_reply_to_tweet_id": getattr(tweet, "in_reply_to_user_id", None),
+                    "in_reply_to_tweet_id": in_reply_to_tweet_id
                 }
                 tweets.append(tweet_data)
 
-            self.cache.set(cache_key, tweets, ttl=300)  # 5 minute cache
+            self.cache.set(cache_key, tweets, ttl=300)
             return [
                 TweetData(
                     id=t["id"],
@@ -134,7 +141,7 @@ class TwitterAPIHandler:
                     author_id=t["author_id"],
                     created_at=datetime.fromisoformat(t["created_at"].replace("Z", "+00:00")),
                     public_metrics=t["public_metrics"],
-                    in_reply_to_tweet_id=t["in_reply_to_tweet_id"],
+                    in_reply_to_tweet_id=t["in_reply_to_tweet_id"]
                 )
                 for t in tweets
             ]
@@ -145,7 +152,7 @@ class TwitterAPIHandler:
 
     def get_tweet(self, tweet_id: str) -> Optional[TweetData]:
         """Get a specific tweet by ID."""
-        cache_key = f"tweet_{tweet_id}"
+        cache_key: str = f"tweet_{tweet_id}"
         cached = self.cache.get(cache_key)
 
         if cached:
@@ -158,15 +165,28 @@ class TwitterAPIHandler:
                     "author_id",
                     "created_at",
                     "public_metrics",
-                    "in_reply_to_user_id",
+                    "conversation_id",
+                    "referenced_tweets",
+                    "in_reply_to_user_id"
                 ],
+                expansions=["referenced_tweets.id", "author_id"]
             )
 
             if not response.data:
+                logger.warning(f"No data returned for tweet {tweet_id}")
                 return None
 
             tweet = response.data
-            tweet_data = {
+            
+            # Get the actual reply tweet ID if this is a reply
+            in_reply_to_tweet_id = None
+            if hasattr(tweet, 'referenced_tweets') and tweet.referenced_tweets:
+                for ref in tweet.referenced_tweets:
+                    if ref.type == 'replied_to':
+                        in_reply_to_tweet_id = ref.id
+                        break
+
+            tweet_data: Dict [str, Any] = {
                 "id": tweet.id,
                 "text": tweet.text,
                 "author_id": tweet.author_id,
@@ -174,7 +194,7 @@ class TwitterAPIHandler:
                 if hasattr(tweet.created_at, "isoformat")
                 else str(tweet.created_at),
                 "public_metrics": tweet.public_metrics or {},
-                "in_reply_to_tweet_id": getattr(tweet, "in_reply_to_user_id", None),
+                "in_reply_to_tweet_id": in_reply_to_tweet_id
             }
 
             self.cache.set(cache_key, tweet_data, ttl=3600)
@@ -187,16 +207,19 @@ class TwitterAPIHandler:
                     tweet_data["created_at"].replace("Z", "+00:00")
                 ),
                 public_metrics=tweet_data["public_metrics"],
-                in_reply_to_tweet_id=tweet_data["in_reply_to_tweet_id"],
+                in_reply_to_tweet_id=tweet_data["in_reply_to_tweet_id"]
             )
 
+        except tweepy.TweepyException as e:
+            logger.error(f"Twitter API error fetching tweet {tweet_id}: {e}")
+            return None
         except Exception as e:
             logger.error(f"Error fetching tweet {tweet_id}: {e}")
             return None
 
     def get_user(self, user_id: str) -> Optional[UserData]:
         """Get user information by user ID."""
-        cache_key = f"user_id_{user_id}"
+        cache_key: str = f"user_id_{user_id}"
         cached = self.cache.get(cache_key)
 
         if cached:
@@ -212,7 +235,7 @@ class TwitterAPIHandler:
                 return None
 
             user = response.data
-            user_data = {
+            user_data: Dict[str, Any] = {
                 "id": user.id,
                 "username": user.username,
                 "name": user.name,
@@ -244,7 +267,7 @@ class TwitterAPIHandler:
 
     def get_user_by_username(self, username: str) -> Optional[UserData]:
         """Get user information by username."""
-        cache_key = f"user_name_{username.lower()}"
+        cache_key: str = f"user_name_{username.lower()}"
         cached = self.cache.get(cache_key)
 
         if cached:
@@ -260,7 +283,7 @@ class TwitterAPIHandler:
                 return None
 
             user = response.data
-            user_data = {
+            user_data: Dict [str, Any] = {
                 "id": user.id,
                 "username": user.username,
                 "name": user.name,
@@ -310,7 +333,7 @@ class TwitterAPIHandler:
 
             tweets = []
             for tweet in response.data:
-                tweet_data = {
+                tweet_data: Dict[str, Any] = {
                     "id": tweet.id,
                     "text": tweet.text,
                     "author_id": user_id,
@@ -362,7 +385,7 @@ class TwitterAPIHandler:
 
             users = []
             for user in response.data:
-                user_data = {
+                user_data: Dict[str, Any] = {
                     "id": user.id,
                     "username": user.username,
                     "name": user.name,
@@ -414,104 +437,3 @@ class TwitterAPIHandler:
         except Exception as e:
             logger.error(f"Error creating tweet: {e}")
             return None
-
-
-# ============================================================================
-# TRUSTED ACCOUNTS MANAGER
-# ============================================================================
-
-
-class TrustedAccountsManager:
-    """Manages trusted accounts list and trust verification."""
-
-    def __init__(self):
-        """Initialize the trusted accounts manager."""
-        self.trusted_list_url = (
-            "https://raw.githubusercontent.com/devsyrem/turst-list/main/list"
-        )
-        self.trusted_accounts: Set[str] = set()
-        self.cache = JSONCache(cache_dir="trusted_cache")
-        self.update_trusted_list()
-
-    def update_trusted_list(self) -> bool:
-        """Update the trusted accounts list from GitHub."""
-        cache_key = "trusted_list"
-        cached = self.cache.get(cache_key)
-
-        if cached and isinstance(cached, list):
-            self.trusted_accounts = set(cached)
-            logger.info(
-                f"Loaded {len(self.trusted_accounts)} trusted accounts from cache"
-            )
-            return True
-
-        try:
-            logger.info("Updating trusted accounts list...")
-            response = requests.get(self.trusted_list_url, timeout=10)
-            response.raise_for_status()
-
-            accounts = set()
-            for line in response.text.strip().split("\n"):
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    username = line.split()[0].lstrip("@").lower()
-                    if (
-                        username
-                        and username.replace("_", "").replace(".", "").isalnum()
-                    ):
-                        accounts.add(username)
-
-            self.trusted_accounts = accounts
-            self.cache.set(cache_key, list(accounts), ttl=86400)
-            logger.info(f"Loaded {len(self.trusted_accounts)} trusted accounts")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to update trusted accounts list: {e}")
-            return False
-
-    def is_trusted_account(self, username: str) -> bool:
-        """Check if an account is in the trusted list."""
-        return username.lower().lstrip("@") in self.trusted_accounts
-
-    def check_trust_score(self, username: str, twitter_api) -> Dict:
-        """Check trust score based on connections to trusted accounts."""
-        try:
-            # First check if the account itself is trusted
-            if self.is_trusted_account(username):
-                return {
-                    "is_vouched": True,
-                    "trust_connections": len(self.trusted_accounts),
-                    "vouched_by": ["trusted_list"],
-                }
-
-            # Get user data
-            user = twitter_api.get_user_by_username(username)
-            if not user:
-                return {"is_vouched": False, "trust_connections": 0, "vouched_by": []}
-
-            # Get who this user is following
-            following = twitter_api.get_following(user.id, max_results=100)
-            if not following:
-                return {"is_vouched": False, "trust_connections": 0, "vouched_by": []}
-
-            # Check connections to trusted accounts
-            trusted_connections = []
-            following_usernames = {user.username.lower() for user in following}
-
-            for trusted_account in self.trusted_accounts:
-                if trusted_account in following_usernames:
-                    trusted_connections.append(trusted_account)
-
-            # An account is "vouched" if followed by at least 2 trusted accounts
-            is_vouched = len(trusted_connections) >= 2
-
-            return {
-                "is_vouched": is_vouched,
-                "trust_connections": len(trusted_connections),
-                "vouched_by": trusted_connections[:5],
-            }
-
-        except Exception as e:
-            logger.error(f"Error checking trust score for @{username}: {e}")
-            return {"is_vouched": False, "trust_connections": 0, "vouched_by": []}

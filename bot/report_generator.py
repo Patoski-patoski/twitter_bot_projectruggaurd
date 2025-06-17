@@ -11,13 +11,13 @@ from datetime import datetime
 from .twitter_api import UserData
 from .analysis import AnalysisResult
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class ReportGenerator:
     """Generates trustworthiness reports for analyzed accounts."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the report generator."""
         self.max_tweet_length = 280
 
@@ -38,21 +38,21 @@ class ReportGenerator:
         logger.info(f"Generating report for @{user.username}")
 
         # Determine overall trust level
-        trust_level = self._calculate_trust_level(analysis, trust_score)
+        trust_level: str = self._calculate_trust_level(analysis, trust_score)
 
         # Generate the main report
         report_parts = []
 
         # Header with trust level
-        header = f"🔍 RUGGUARD ANALYSIS: @{user.username}\n"
+        header: str = f"🔍 RUGGUARD ANALYSIS: @{user.username}\n"
         report_parts.append(header)
 
         # Trust level indicator
-        trust_indicator = self._get_trust_indicator(trust_level)
+        trust_indicator: str = self._get_trust_indicator(trust_level)
         report_parts.append(f"{trust_indicator}\n")
 
         # Key metrics
-        metrics = self._format_key_metrics(user, analysis)
+        metrics: str = self._format_key_metrics(user, analysis)
         report_parts.append(metrics)
 
         # Trusted network status
@@ -64,13 +64,13 @@ class ReportGenerator:
 
         # Warning flags
         if analysis.flags:
-            flag_text = self._format_flags(analysis.flags)
+            flag_text: str = self._format_flags(analysis.flags)
             if flag_text:
                 report_parts.append(flag_text)
 
         # Recommendations
         if analysis.recommendations:
-            rec_text = self._format_recommendations(analysis.recommendations)
+            rec_text: str = self._format_recommendations(analysis.recommendations)
             if rec_text:
                 report_parts.append(rec_text)
 
@@ -78,7 +78,7 @@ class ReportGenerator:
         footer = "\n#RUGGUARD #DeFiSafety #DYOR"
 
         # Combine and ensure it fits in tweet length
-        full_report = "".join(report_parts) + footer
+        full_report: str = "".join(report_parts) + footer
 
         # Truncate if necessary
         if len(full_report) > self.max_tweet_length:
@@ -107,7 +107,7 @@ class ReportGenerator:
         elif trust_score.get("trust_connections", 0) >= 2:
             risk_score = max(0, risk_score - 2)  # Moderate trust boost
         elif trust_score.get("trust_connections", 0) >= 1:
-            risk_score = max(0, risk_score - 1)  # Small trust boost
+            risk_score: int = max(0, risk_score - 1)  # Small trust boost
 
         # Determine trust level
         if risk_score <= 2:
@@ -121,7 +121,7 @@ class ReportGenerator:
 
     def _get_trust_indicator(self, trust_level: str) -> str:
         """Get emoji indicator for trust level."""
-        indicators = {
+        indicators: Dict[str, str] = {
             "HIGH": "🟢 HIGH TRUST",
             "MEDIUM": "🟡 MEDIUM TRUST",
             "LOW": "🟠 LOW TRUST",
@@ -134,20 +134,20 @@ class ReportGenerator:
         metrics = []
 
         # Account age
-        age_days = analysis.account_age_days
+        age_days: int = analysis.account_age_days
         if age_days < 30:
-            age_str = f"📅 {age_days}d old (NEW)"
+            age_str: str = f"📅 {age_days}d old (NEW)"
         elif age_days < 365:
             age_str = f"📅 {age_days}d old"
         else:
-            years = age_days // 365
+            years: int = age_days // 365
             age_str = f"📅 {years}y old"
         metrics.append(age_str)
 
         # Followers
-        followers = user.public_metrics.get("followers_count", 0)
+        followers: int = user.public_metrics.get("followers_count", 0)
         if followers >= 1000000:
-            follower_str = f"👥 {followers // 1000000:.1f}M followers"
+            follower_str: str = f"👥 {followers // 1000000:.1f}M followers"
         elif followers >= 1000:
             follower_str = f"👥 {followers // 1000:.1f}K followers"
         else:
@@ -155,13 +155,13 @@ class ReportGenerator:
         metrics.append(follower_str)
 
         # Follower ratio
-        ratio = analysis.follower_following_ratio
+        ratio: float = analysis.follower_following_ratio
         if ratio >= 10:
             ratio_str = "📊 Great ratio"
         elif ratio >= 1:
             ratio_str = f"📊 {ratio:.1f}:1 ratio"
         else:
-            ratio_str = f"📊 {ratio:.2f}:1 ratio"
+            ratio_str: str = f"📊 {ratio:.2f}:1 ratio"
         metrics.append(ratio_str)
 
         return " | ".join(metrics) + "\n"
@@ -172,8 +172,8 @@ class ReportGenerator:
             return ""
 
         # Limit to most important flags
-        important_flags = flags[:2]
-        flag_text = "⚠️ " + " | ".join(important_flags)
+        important_flags: List[str] = flags[:2]
+        flag_text: str = "⚠️ " + " | ".join(important_flags)
 
         if len(flags) > 2:
             flag_text += f" (+{len(flags) - 2} more)"
@@ -186,8 +186,8 @@ class ReportGenerator:
             return ""
 
         # Limit to most important recommendations
-        important_recs = recommendations[:1]
-        rec_text = "✅ " + " | ".join(important_recs)
+        important_recs: List[str] = recommendations[:1]
+        rec_text: str = "✅ " + " | ".join(important_recs)
 
         return rec_text + "\n"
 
@@ -203,17 +203,17 @@ class ReportGenerator:
             Truncated report string
         """
         # Essential parts that must be included
-        essential_parts = [report_parts[0], report_parts[1]]  # Header and trust level
+        essential_parts: List[str] = [report_parts[0], report_parts[1]]  # Header and trust level
 
         # Calculate available space
-        essential_length = len("".join(essential_parts)) + len(footer)
-        available_space = (
+        essential_length: int = len("".join(essential_parts)) + len(footer)
+        available_space: int = (
             self.max_tweet_length - essential_length - 10
         )  # Buffer for "..."
 
         # Add optional parts until we run out of space
-        optional_parts = report_parts[2:]
-        truncated_parts = essential_parts.copy()
+        optional_parts: List[str] = report_parts[2:]
+        truncated_parts: List[str] = essential_parts.copy()
 
         for part in optional_parts:
             if len(part) <= available_space:
@@ -240,14 +240,14 @@ class ReportGenerator:
         Returns:
             Error report string
         """
-        error_messages = {
+        error_messages: Dict[str, str] = {
             "analysis": "❌ Analysis failed - please try again later",
             "not_found": "❌ Account not found or private",
             "rate_limit": "⏰ Rate limited - please wait before next request",
             "api_error": "❌ API error - please try again later",
         }
 
-        message = error_messages.get(error_type, "❌ Unknown error occurred")
+        message: str = error_messages.get(error_type, "❌ Unknown error occurred")
 
         return f"🔍 RUGGUARD: @{username}\n{message}\n\n#RUGGUARD #DeFiSafety"
 
@@ -266,19 +266,19 @@ class ReportGenerator:
         if len(vouched_by) > 3:
             voucher_text += f" +{len(vouched_by) - 3} more"
 
-        followers = user.public_metrics.get("followers_count", 0)
+        followers: int = user.public_metrics.get("followers_count", 0)
         if followers >= 1000:
-            follower_str = f"{followers // 1000:.1f}K"
+            follower_str: str = f"{followers // 1000:.1f}K"
         else:
             follower_str = str(followers)
 
-        age_days = (datetime.now() - datetime.fromisoformat(user.created_at.replace('Z', '+00:00'))).days
+        age_days: int = (datetime.now() - datetime.fromisoformat(user.created_at.replace('Z', '+00:00'))).days
         if age_days >= 365:
-            age_str = f"{age_days // 365}y"
+            age_str: str = f"{age_days // 365}y"
         else:
             age_str = f"{age_days}d"
 
-        report = f"""🔍 RUGGUARD: @{user.username}
+        report: str = f"""🔍 RUGGUARD: @{user.username}
 🟢 TRUSTED ACCOUNT
 ✅ Vouched by: {voucher_text}
 👥 {follower_str} followers | 📅 {age_str} old
