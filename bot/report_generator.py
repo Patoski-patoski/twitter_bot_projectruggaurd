@@ -85,7 +85,7 @@ class ReportGenerator:
             full_report = self._truncate_report(report_parts, footer)
 
         logger.info(
-            f"Report generated for @{user.username}: {len(full_report)} characters"
+            f"\n\n\nReport generated for @{user.username}: {len(full_report)} characters"
         )
         return full_report
 
@@ -272,7 +272,7 @@ class ReportGenerator:
         else:
             follower_str = str(followers)
 
-        age_days: int = (datetime.now() - datetime.fromisoformat(user.created_at.replace('Z', '+00:00'))).days
+        age_days: int = (datetime.now() - datetime.fromisoformat(str(user.created_at).replace('Z', '+00:00'))).days
         if age_days >= 365:
             age_str: str = f"{age_days // 365}y"
         else:

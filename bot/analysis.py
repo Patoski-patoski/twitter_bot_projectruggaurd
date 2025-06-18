@@ -4,9 +4,8 @@ Account Analysis Module for Project RUGGUARD
 Analyzes Twitter accounts for trustworthiness indicators.
 """
 
-import re
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 from dataclasses import dataclass
 
@@ -53,7 +52,7 @@ class AccountAnalyzer:
         recommendations = []
         
         # Analyze account age
-        account_age_days = self._calculate_account_age(user.created_at)
+        account_age_days: int = self._calculate_account_age(user.created_at)
         if account_age_days < 30:
             flags.append("Very new account (less than 30 days)")
         elif account_age_days < 90:
@@ -119,10 +118,10 @@ class AccountAnalyzer:
     def _calculate_account_age(self, created_at: datetime) -> int:
         """Calculate account age in days."""
         try:
-            now = datetime.now(timezone.utc)
+            now: datetime = datetime.now(timezone.utc)
             if created_at.tzinfo is None:
                 created_at = created_at.replace(tzinfo=timezone.utc)
-            age = now - created_at
+            age: timedelta = now - created_at
             return age.days
         except Exception as e:
             logger.error(f"Error calculating account age: {e}")
@@ -134,7 +133,7 @@ class AccountAnalyzer:
         following: int = metrics.get('following_count', 1)
         
         if following == 0:
-            return float('inf') if followers > 0 else 0
+            return int('inf') if followers > 0 else 0
         
         return followers / following
     
